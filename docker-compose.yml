@@ -1,0 +1,56 @@
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - minio_data:/data
+
+  # one-shot job to create the bucket if it doesn't exist
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh","-c","set -e; \
+      echo 'Waiting for MinIO at http://minio:9000 ...'; \
+      until mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null 2>&1; do \
+        echo 'MinIO not ready, retrying in 2s...'; sleep 2; \
+      done; \
+      echo 'MinIO is ready. Creating bucket/policy...'; \
+      mc mb --ignore-existing local/fin-voice; \
+      mc anonymous set download local/fin-voice || true; \
+      echo 'Done.'"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    container_name: api
+    depends_on:
+      - minio
+      - minio-init
+    environment:
+      # MinIO/S3
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: fin-voice
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    ports:
+      - "8000:8000"
+    restart: on-failure
+    volumes:
+      - ./app:/app/app:rw
+
+volumes:
+  minio_data:
