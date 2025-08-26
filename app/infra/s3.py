@@ -1,4 +1,4 @@
-import asyncio, boto3
+import asyncio, boto3, json
 from app.core.config import get_settings
 
 class S3Storage:
@@ -24,5 +24,14 @@ class S3Storage:
             ContentType=content_type
         )
         if self.endpoint:  # MinIO (dev)
+            return f"{self.endpoint.rstrip('/')}/{self.bucket}/{key}"
+        return f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+
+    async def put_json(self, key: str, obj: dict) -> str:
+        data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        return await self.put_bytes(key, data, content_type="application/json")
+
+    def url_for(self, key: str) -> str:
+        if self.endpoint:
             return f"{self.endpoint.rstrip('/')}/{self.bucket}/{key}"
         return f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"

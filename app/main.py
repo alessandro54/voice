@@ -1,6 +1,6 @@
-from fastapi import Request, BackgroundTasks
+from fastapi import HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
-from app.services import telegram_bot_service
+from app.services.telegram_service import TelegramService
 
 from fastapi import FastAPI
 from app.core.config import Settings
@@ -8,12 +8,26 @@ from app.core.config import Settings
 settings = Settings()
 app = FastAPI()
 
-telegram_service = telegram_bot_service.TelegramBotService()
+telegram_service = TelegramService()
 
+@app.middleware("http")
+async def log_requests(req: Request, call_next):
+    if req.url.path.startswith("/telegram"):
+        print("[TG] hit", req.method, req.url.path)
+    return await call_next(req)
 
-@app.post(f"/telegram/{settings.TELEGRAM_BOT_TOKEN.get_secret_value()}")
+@app.post("/telegram/webhook")
 async def webhook(request: Request, background: BackgroundTasks):
-    payload = await request.json()
+    secret = request.headers.get("x-telegram-bot-api-secret-token")
+    expected = getattr(settings, "WEBHOOK_SECRET", None)
+    if expected and secret != expected:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json")
+
     background.add_task(telegram_service.process_update, payload)
     return JSONResponse({"ok": True})
 
